@@ -1,12 +1,13 @@
 #-*- coding:utf8 -*-
 import os, time, uuid
 import logging
-from multiprocessing import Process
+from multiprocessing import Process, Queue, Pool, TimeoutError
 from datetime import date, datetime, timedelta
 from subprocess import Popen, PIPE
 
 
 path = os.path.abspath(__file__)
+queue = Queue()
         
 
 
@@ -138,12 +139,10 @@ class Job(object):
             self.logger.info("The result of run the command: " + str(out) + str(err))
         finally:
             self.logger.info('finish running script: {}'.format(script))
+
+        self.gen_next_time()
         
-        
-            
-        
-        
-        
+
 ########################################################################
 class Crontab(object):
     """"""
@@ -214,7 +213,7 @@ class Crontab(object):
         
     
     #----------------------------------------------------------------------
-    def loop(self):
+    def loop(self, queue):
         """
         需要开启队列，由另外的进程运行任务
         """
@@ -223,12 +222,37 @@ class Crontab(object):
             now = datetime.now().replace(microsecond=0)
             for j in sorted(self._jobs):
                 if j.next_time == now:
-                    p = Process(target=j.run)
-                    p.start()
                     j.run_batch_id = self.run_batch_id
-            p.join()
+                    queue.put(j)
+                    
             time.sleep(1)
 
                 
+def first_runner(queue):
+    while True:
+        j = queue.get():
+        j.run()
 
+def second_runner(queue):
+    while True:
+        j = queue.get():
+        j.run()
+
+
+
+if __name__ == '__main__':
+    cron = Crontab()
+    ps = []
+    p1 = Process(target=cron.run, args=(queue,))
+    ps.append(p1)
+    p2 = Process(target=first_runner, args=(queue,))
+    ps.append(p2)
+    p3 = Process(target=second_runner, args=(queue,))
+    ps.append(p3)
+
+    for p in ps:
+        p.start()
+    
+    for p in ps:
+        p.join()
     
