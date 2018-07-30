@@ -69,12 +69,31 @@ class Job(object):
                 self.status = -1
 
         else:
-            self.next_time = datetime(year=self.year,
-                                      month=self.month,
-                                      day=self.day,
-                                      hour=self.hour,
-                                      minute=self.minute,
-                                      second=self.second)
+            if self.year == 0:
+                if self.month == 0:
+                    if self.day == 0:
+                        if self.hour == 0:
+                            if self.minute == 0:
+                                if self.second == 0:
+                                    pass
+                                else:
+                                    pass
+                            else:
+                                pass
+                        else:
+                            pass
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                self.next_time = datetime(year=self.year,
+                                          month=self.month if self.month != 0 else 1,
+                                          day=self.day if self.month != 0 else 1,
+                                          hour=self.hour,
+                                          minute=self.minute,
+                                          second=self.second)
+
             if self.next_time < datetime.now():
                 self.status = -1
 
@@ -181,25 +200,23 @@ class Crontab(object):
         self._begin_time = None
         self._end_time = None
         self._jobs = []
+        self.frequency = 'day'
 
     def at(self):
-        """一次性执行"""
+        """定时间点"""
         self._method = 'at'
         del Crontab.every
-        del Crontab.begin
-        del Crontab.end
         del Crontab.week
-        del self._begin_time
-        del self._end_time
-        self._year = date.today().year
-        self._month = date.today().month
-        self._day = date.today().day
         return self
 
-    def every(self):
-        """循环执行"""
-        self._method = 'every'
-        del Crontab.at
+    def every(self, frequency):
+        """频率"""
+        f = ['year', 'month', 'day', 'hour', 'minute', 'second']
+        if frequency not in f:
+            raise Exception("Frequency must be in {}".format(f))
+
+        self.frequency = frequency
+
         return self
 
     def begin(self, dtime):
@@ -251,9 +268,9 @@ class Crontab(object):
         return self
 
     # def __getattr__(self, item):
-    #     if (self._method == 'at' and item in ['every', 'begin', 'end']) \
+    #     if (self._method == 'at' and item in ['every']) \
     #             or (self._method == 'every' and item == 'at'):
-    #         raise AttributeError("Job运行方式冲突: at不可以与 every、begin、end同时使用")
+    #         raise AttributeError("Job运行方式冲突: at不可以与 every同时使用")
     #     return self
 
     def add(self, script):
