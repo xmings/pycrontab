@@ -1,5 +1,5 @@
 # -*- coding:utf-8 -*-
-import os, time, uuid, platform, json
+import os, time, uuid, platform, json, codecs
 import logging
 from multiprocessing import Process, Queue, freeze_support
 from datetime import date, datetime, timedelta
@@ -324,7 +324,7 @@ class Crontab(object):
         self._jobs = state
 
     def loop(self, queue, debug):
-        with open(self.job_config_file, 'a', encoding='utf-8') as f:
+        with codecs.open(self.job_config_file, 'a', encoding='utf-8') as f:
             for j in self._jobs:
                 json.dump(repr(j), f, ensure_ascii=False)
                 f.write('\n')
