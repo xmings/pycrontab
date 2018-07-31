@@ -1,5 +1,5 @@
 # -*- coding:utf-8 -*-
-import os, time, uuid, platform
+import os, time, uuid, platform, json
 import logging
 from multiprocessing import Process, Queue, freeze_support
 from datetime import date, datetime, timedelta
@@ -9,15 +9,15 @@ current_path = os.path.dirname(os.path.abspath(__file__))
 
 decode = 'gb2312' if platform.system() == 'Windows' else 'utf-8'
 
-
+def nvl(x,y):
+    return x if x else y
 ########################################################################
 class Job(object):
     """"""
 
-    def __init__(self, script, crontab, *args):
+    def __init__(self, script, crontab):
         """Constructor"""
         self.script = script
-        self.crontab = crontab
         self.add_time = datetime.now().replace(microsecond=0)
         self.run_batch_id = None
         self.next_time = None
@@ -27,78 +27,91 @@ class Job(object):
         self.log_file_sequence = 1
         self.logger = None
         self.status = 1 # -1:结束; 1：运行中
-        self.year = self.crontab._year if self.crontab._year else 0
-        self.month = self.crontab._month if self.crontab._month else 0
-        self.day = self.crontab._day if self.crontab._day else 0
-        self.week = self.crontab._week if self.crontab._week else 0
-        self.hour = self.crontab._hour if self.crontab._hour else 0
-        self.minute = self.crontab._minute if self.crontab._minute else 0
-        self.second = self.crontab._second if self.crontab._second else 0
+        self.method = crontab._method
+        self.year = crontab._year
+        self.month = crontab._month
+        self.day = crontab._day
+        self.hour = crontab._hour
+        self.minute = crontab._minute
+        self.second = crontab._second
+        self.granula = crontab._granula
+        self.begin_time = crontab._begin_time
+        self.end_time = crontab._end_time
         self.gen_next_time()
         self.log()
 
     def gen_next_time(self):
         """"""
-        if self.crontab._method == 'every':
-            self.begin_time = self.crontab._begin_time if self.crontab._begin_time else self.add_time
-            if self.next_time:
-                self.next_time = self.next_time \
-                             + timedelta(weeks=self.week) \
-                             + timedelta(days=self.day) \
-                             + timedelta(hours=self.hour) \
-                             + timedelta(minutes=self.minute) \
-                             + timedelta(seconds=self.second)
-                if self.month > 0:
-                    month = self.next_time.month + self.month
-                    self.next_time.replace(year=self.next_time.year + month//12, month=month%12)
-
-                if self.year > 0:
-                    self.next_time.replace(year=self.next_time.year + self.year)
-            else:
-                if self.crontab._begin_time:
-                    self.next_time = self.crontab._begin_time
+        if self.method == 'fix-all':
+            self.next_time = datetime(year=self.year,
+                                      month=self.month,
+                                      day=self.day,
+                                      hour=self.hour,
+                                      minute=self.minute,
+                                      second=self.second)
+            self.status = -1
+        elif self.method == 'fix-part':
+            now = datetime.now().replace(microsecond=0)
+            if not self.next_time:
+                if self.begin_time:
+                    self.next_time = self.begin_time
                 else:
-                    self.next_time = self.add_time \
-                                 + timedelta(weeks=self.week) \
-                                 + timedelta(days=self.day) \
-                                 + timedelta(hours=self.hour) \
-                                 + timedelta(minutes=self.minute) \
-                                 + timedelta(seconds=self.second)
+                    self.next_time = self.add_time
 
-            if self.crontab._end_time and self.next_time > self.crontab._end_time:
-                self.status = -1
-
-        else:
-            if self.year == 0:
-                if self.month == 0:
-                    if self.day == 0:
-                        if self.hour == 0:
-                            if self.minute == 0:
-                                if self.second == 0:
-                                    pass
-                                else:
-                                    pass
-                            else:
-                                pass
-                        else:
-                            pass
+            if self.granula == 'year':
+                self.next_time = self.next_time.replace(month=self.month,
+                                       day=self.day, hour=self.hour, minute=self.minute, second=self.second)
+                if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
+                    self.next_time = self.next_time.replace(year=self.next_time.year + 1)
+            elif self.granula == 'month':
+                self.next_time = self.next_time.replace(day=self.day, hour=self.hour, minute=self.minute, second=self.second)
+                if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
+                    if self.next_time.month == 12:
+                        self.next_time = self.next_time.replace(year=self.next_time.year + 1, month=1)
                     else:
-                        pass
-                else:
-                    pass
-            else:
-                self.next_time = datetime(year=self.year,
-                                          month=self.month if self.month != 0 else 1,
-                                          day=self.day if self.month != 0 else 1,
-                                          hour=self.hour,
-                                          minute=self.minute,
-                                          second=self.second)
+                        self.next_time = self.next_time.replace(month=self.next_time.month + 1)
+            elif self.granula == 'day':
+                self.next_time = self.next_time.replace(hour=self.hour, minute=self.minute, second=self.second)
+                if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
+                    self.next_time += timedelta(days=1)
+            elif self.granula == 'hour':
+                self.next_time = self.next_time.replace(minute=self.minute, second=self.second)
+                if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
+                    self.next_time += timedelta(hours=1)
+            elif self.granula == 'minute':
+                self.next_time = self.next_time.replace(second=self.second)
+                if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
+                    self.next_time += timedelta(minutes=1)
 
-            if self.next_time < datetime.now():
+            if self.end_time and self.next_time > self.end_time:
                 self.status = -1
 
+        else: # interval
+            if not self.next_time:
+                if self.begin_time:
+                    self.next_time = self.begin_time
+                else:
+                    self.next_time = self.add_time
+            else:
+                if self.year:
+                    self.next_time = self.next_time.replace(year=self.next_time.year+1)
+                elif self.month:
+                    if self.next_time.month == 12:
+                        self.next_time = self.next_time.replace(year=self.next_time.year+1, month=1)
+                    else:
+                        self.next_time = self.next_time.replace(month=self.next_time.month+1)
+                elif self.day:
+                    self.next_time += timedelta(days=self.day)
+                elif self.hour:
+                    self.next_time += timedelta(hours=self.hour)
+                elif self.minute:
+                    self.next_time += timedelta(minutes=self.minute)
+                elif self.second:
+                    self.next_time += timedelta(seconds=self.second)
 
 
+                if self.end_time and self.next_time > self.end_time:
+                    self.status = -1
 
     def gen_log_sequence(self):
         # 计算日志大小
@@ -126,10 +139,6 @@ class Job(object):
         else:
             self.log_size = 10
 
-    def __lt__(self, other):
-        """"""
-        return self.next_time < other.next_time
-
     def _logger(self, debug=False):
         """"""
         log_file = self.log_file.format(timestamp=self.log_file_timestamp, sequence=self.log_file_sequence)
@@ -143,7 +152,7 @@ class Job(object):
             consolehandler = logging.StreamHandler()
             consolehandler.setLevel(logging.DEBUG if debug else logging.ERROR)
 
-            formatter = logging.Formatter("%(asctime)s - %(filename)s - %(module)s - %(levelname)s - %(message)s")
+            formatter = logging.Formatter("%(asctime)s - %(filename)s - %(levelname)s - %(message)s")
 
             filehandler.setFormatter(formatter)
             consolehandler.setFormatter(formatter)
@@ -179,120 +188,161 @@ class Job(object):
         finally:
             self.logger.info('finish running script: {}'.format(self.script))
 
+    def __lt__(self, other):
+        """"""
+        return self.next_time < other.next_time
+
+    def __repr__(self):
+        return str({
+            "script": self.script,
+            "status": self.status,
+            "begin_time": self.begin_time,
+            "end_time": self.end_time,
+            "method": self.method,
+            "granula": self.granula,
+            "year": self.year,
+            "month": self.month,
+            "day": self.day,
+            "hour": self.hour,
+            "minute": self.minute,
+            "second": self.second
+        })
+
     def __str__(self):
-        return '<Job %r, method %r, next_time %s>' % (self.script, self.crontab._method, self.next_time)
+        return '<Job %r, method %r, next_time %s, status %s>' % (self.script, self.method, self.next_time, self.status)
 
 
 ########################################################################
 class Crontab(object):
     """"""
-
+    _jobs = []
+    job_config_file = os.path.join(current_path, 'jobs.conf')
     def __init__(self):
         """Constructor"""
         self._method = ''
         self._year = None
         self._month = None
         self._day = None
-        self._week = None
         self._hour = None
         self._minute = None
         self._second = None
         self._begin_time = None
         self._end_time = None
-        self._jobs = []
-        self.frequency = 'day'
+        self._interval = None
+        self._granula = None
+        self._granulalist = ['year', 'month', 'day', 'hour', 'minute', 'second']
 
-    def at(self):
-        """定时间点"""
-        self._method = 'at'
-        del Crontab.every
-        del Crontab.week
+    def every(self, granula='day'):
+        if granula not in self._granulalist:
+            raise Exception("granula必须在{}中".format(','.join(self._granulalist)))
+
+        self._granula = granula
         return self
 
-    def every(self, frequency):
-        """频率"""
-        f = ['year', 'month', 'day', 'hour', 'minute', 'second']
-        if frequency not in f:
-            raise Exception("Frequency must be in {}".format(f))
+    def at(self, **kwargs):
+        """定时间点"""
+        if self._method:
+            raise Exception("不可重用interval和at方法.")
 
-        self.frequency = frequency
+        if not self._granula:
+            assert len(self._granulalist) == 6
+            for k in kwargs:
+                if k not in self._granulalist:
+                    raise Exception("{}必须在{}中".format(k,','.join(self._granulalist)))
+                setattr(self, '_' + k, kwargs[k])
+            self._method = 'fix-all'
+            return self
 
+        self._method = 'fix-part'
+
+        if self._granula == 'year':
+            self._month = kwargs.get('month', 1)
+            self._day = kwargs.get('day', 1)
+            self._hour = kwargs.get('hour', 0)
+            self._minute = kwargs.get('minute', 0)
+            self._second = kwargs.get('second', 0)
+
+        elif self._granula == 'month':
+            self._day = kwargs.get('day', 1)
+            self._hour = kwargs.get('hour', 0)
+            self._minute = kwargs.get('minute', 0)
+            self._second = kwargs.get('second', 0)
+
+        elif self._granula == 'day':
+            self._hour = kwargs.get('hour', 0)
+            self._minute = kwargs.get('minute', 0)
+            self._second = kwargs.get('second', 0)
+
+        elif self._granula == 'hour':
+            self._minute = kwargs.get('minute', 0)
+            self._second = kwargs.get('second', 0)
+
+        elif self._granula == 'minute':
+            self._second = kwargs.get('second', 0)
+
+        elif self._granulalist == 'second':
+            raise Exception("every('second')时不支持at,可使用interval!")
+
+        return self
+
+    def interval(self, num):
+        """定间隔"""
+        if self._method:
+            raise Exception("不可重用interval和at方法.")
+        if not self._granula:
+            raise Exception("必须先使用every方法指定频率粒度")
+        self._method = 'interval'
+        setattr(self, '_' + self._granula, num)
         return self
 
     def begin(self, dtime):
         """开始时间，精确到秒"""
         if not isinstance(dtime, datetime):
             raise Exception("dtime参数必须为datetime类型")
-        self._begin_time = dtime
+        self._begin_time = dtime.replace(microsecond=0)
         return self
 
     def end(self, dtime):
         """结束时间，精确到秒"""
         if not isinstance(dtime, datetime):
             raise Exception("btime参数必须为datetime类型")
-        self._end_time = dtime
+        self._end_time = dtime.replace(microsecond=0)
         return self
-
-    def year(self, y):
-        self._year = int(y)
-        return self
-
-    def month(self, m):
-        """"""
-        self._month = int(m)
-        return self
-
-    def day(self, d):
-        """"""
-        self._day = int(d)
-        return self
-
-    def week(self, w):
-        """"""
-        self._week = int(w)
-        return self
-
-    def hour(self, h):
-        """"""
-        self._hour = int(h)
-        return self
-
-    def minute(self, m):
-        """"""
-        self._minute = int(m)
-        return self
-
-    def second(self, s):
-        """"""
-        self._second = int(s)
-        return self
-
-    # def __getattr__(self, item):
-    #     if (self._method == 'at' and item in ['every']) \
-    #             or (self._method == 'every' and item == 'at'):
-    #         raise AttributeError("Job运行方式冲突: at不可以与 every同时使用")
-    #     return self
 
     def add(self, script):
-        """"""
         if not os.path.exists(script):
-            raise Exception('The script not found: {}'.format(script))
+            raise Exception("未找到该脚本:{}".format(script))
+
         j = Job(script, self)
         self._jobs.append(j)
+        self.__init__()
 
+    def __getstate__(self):
+        return self._jobs
+
+    def __setstate__(self, state):
+        self._jobs = state
 
     def loop(self, queue, debug):
+        with open(self.job_config_file, 'a', encoding='utf-8') as f:
+            for j in self._jobs:
+                json.dump(repr(j), f, ensure_ascii=False)
+                f.write('\n')
+
         while True:
             run_batch_id = uuid.uuid1().hex
             now = datetime.now().replace(microsecond=0)
+            for j in self._jobs:
+                if j.status == -1:
+                    self._jobs.remove(j)
+
             for j in sorted(self._jobs):
                 if debug:
-                    j._logger(debug).info("{} ,now {}".format(str(j), str(now)))
+                    j._logger(debug).info("{}".format(str(j)))
 
                 # 两秒钟的时间窗口，避免因为job太多导致错过部分job
-
                 if (j.next_time + timedelta(seconds=2)) >= now >= j.next_time \
-                        and run_batch_id != j.run_batch_id and j.status == 1:
+                        and run_batch_id != j.run_batch_id:
                     j.run_batch_id = run_batch_id
                     if debug:
                         j._logger(debug).info("put job into queue: {}".format(str(j)))
