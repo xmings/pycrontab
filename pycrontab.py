@@ -5,12 +5,14 @@ from multiprocessing import Process, Queue, freeze_support
 from datetime import date, datetime, timedelta
 from subprocess import Popen, PIPE
 
+
+__all__ = ['crontab', 'crontab_run']
+
 current_path = os.path.dirname(os.path.abspath(__file__))
 
 decode = 'gb2312' if platform.system() == 'Windows' else 'utf-8'
 
-def nvl(x,y):
-    return x if x else y
+
 ########################################################################
 class Job(object):
     """"""
@@ -165,7 +167,7 @@ class Job(object):
     def run(self):
         """"""
         self.logger = self._logger()
-        self.logger.info('begin running script: {}'.format(self.script))
+        self.logger.info('start running script: {}'.format(self.script))
         try:
             cmd = 'python ' + self.script
             p = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=True)
