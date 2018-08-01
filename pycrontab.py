@@ -194,22 +194,6 @@ class Job(object):
         """"""
         return self.next_time < other.next_time
 
-    def __repr__(self):
-        return str({
-            "script": self.script,
-            "status": self.status,
-            "begin_time": self.begin_time,
-            "end_time": self.end_time,
-            "method": self.method,
-            "granula": self.granula,
-            "year": self.year,
-            "month": self.month,
-            "day": self.day,
-            "hour": self.hour,
-            "minute": self.minute,
-            "second": self.second
-        })
-
     def __str__(self):
         return '<Job %r, method %r, next_time %s, status %s>' % (self.script, self.method, self.next_time, self.status)
 
@@ -327,17 +311,16 @@ class Crontab(object):
         self._jobs = state
 
     def loop(self, queue, debug):
-        with codecs.open(self.job_config_file, 'a', encoding='utf-8') as f:
-            for j in self._jobs:
-                json.dump(repr(j), f, ensure_ascii=False)
-                f.write('\n')
+        with codecs.open(self.job_config_file, 'w', encoding='utf-8') as f:
+            json_jobs = [j.__dict__ for j in self._jobs]
+            json.dump(json_jobs, f, indent=4, ensure_ascii=False, separators=(',', ': '), cls=DateEncoder)
 
         while True:
             run_batch_id = uuid.uuid1().hex
             now = datetime.now().replace(microsecond=0)
-            for j in self._jobs:
-                if j.status == -1:
-                    self._jobs.remove(j)
+
+            # 去除已完成的job
+            self._jobs = [j for j in self._jobs if j.status == 1]
 
             for j in sorted(self._jobs):
                 if debug:
@@ -354,6 +337,14 @@ class Crontab(object):
                     j.gen_log_sequence()
 
             time.sleep(1)
+
+
+class DateEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            return json.JSONEncoder.default(self, obj)
 
 def first_runner(queue):
     while True:
