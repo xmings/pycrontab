@@ -17,9 +17,10 @@ decode = 'gb2312' if platform.system() == 'Windows' else 'utf-8'
 class Job(object):
     """"""
 
-    def __init__(self, script, crontab):
+    def __init__(self, script, executor, crontab):
         """Constructor"""
         self.script = script
+        self.executor = executor
         self.add_time = datetime.now().replace(microsecond=0)
         self.run_batch_id = None
         self.next_time = None
@@ -169,23 +170,22 @@ class Job(object):
         self.logger = self._logger()
         self.logger.info('start running script: {}'.format(self.script))
         try:
-            cmd = 'python ' + self.script
+            cmd = '{} {}'.format(self.executor, self.script)
             p = Popen(cmd, stdout=PIPE, stderr=PIPE, shell=True)
             out, err = p.communicate()
-            if err and p.returncode != 0:
+            if err or p.returncode != 0:
                 self.logger.error(
-                    "The command finished with error: "
+                    "The command finished with error: \n"
                     + err.decode(decode).replace('\r', '').rstrip('\n')
+                )
+            else:
+                self.logger.info(
+                    "The stdout of the command: \n"
+                    + out.decode(decode).replace('\r', '').rstrip('\n')
                 )
         except Exception as e:
             self.logger.error(
                 "The command finished with error: " + e.args[0] + e.args[1]
-            )
-        else:
-            self.logger.info(
-                "The stdout of the command: " \
-                + out.decode(decode).replace('\r', '').rstrip('\n') \
-                + ("\n" + err.decode(decode).replace('\r', '').rstrip('\n')).rstrip('\n')
             )
         finally:
             self.logger.info('finish running script: {}'.format(self.script))
@@ -311,11 +311,12 @@ class Crontab(object):
         self._end_time = dtime.replace(microsecond=0)
         return self
 
-    def add(self, script):
+    def add(self, script, executor='python'):
         if not os.path.exists(script):
             raise Exception("未找到该脚本:{}".format(script))
-
-        j = Job(script, self)
+        if os.path.splitext(script)[1].lower() != '.py' and executor.lower() =='python':
+            raise Exception("必须提供正确的执行程序，如python, java, bash等")
+        j = Job(script, executor, self)
         self._jobs.append(j)
         self.__init__()
 
