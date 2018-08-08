@@ -21,6 +21,10 @@ if __name__ == '__main__':
     end_time = datetime.datetime.strptime('2018-10-01 00:00:00', '%Y-%m-%d %H:%M:%S')
     crontab.every('minute').interval(5).begin(begin_time).end(end_time).add(script3)
     
+    # 每月最后一天运行script4
+    script4 = '/opt/scrapy_blog.py'
+    crontab.every('month').at(day=-1).add(script4)
+    
     # 开始运行crontab, 默认debug=False
     crontab_run(debug = True)
 
