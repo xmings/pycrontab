@@ -64,15 +64,26 @@ class Job(object):
             if self.granula == 'year':
                 self.next_time = self.next_time.replace(month=self.month,
                                        day=self.day, hour=self.hour, minute=self.minute, second=self.second)
+                # 防止第一次计算next_time跳过当年的执行时间
+                # 比如begin_time='2018-06-01 00:00:00', 如果指定每年7月1日执行一次作业，
+                # 此时以下条件限制就可以防止添加作业后第一次的next_time跳过当年的7月
                 if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
                     self.next_time = self.next_time.replace(year=self.next_time.year + 1)
             elif self.granula == 'month':
-                self.next_time = self.next_time.replace(day=self.day, hour=self.hour, minute=self.minute, second=self.second)
+                self.next_time = self.next_time.replace(hour=self.hour, minute=self.minute, second=self.second)
                 if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
                     if self.next_time.month == 12:
                         self.next_time = self.next_time.replace(year=self.next_time.year + 1, month=1)
                     else:
                         self.next_time = self.next_time.replace(month=self.next_time.month + 1)
+
+                if self.day > 0:
+                    self.next_time = self.next_time.replace(day=self.day)
+                else:
+                    import calendar
+                    days = calendar.monthrange(self.next_time.year, self.next_time.month)[1]
+                    self.next_time = self.next_time.replace(day=days + self.day)
+
             elif self.granula == 'day':
                 self.next_time = self.next_time.replace(hour=self.hour, minute=self.minute, second=self.second)
                 if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
@@ -231,11 +242,16 @@ class Crontab(object):
             raise Exception("不可重用interval和at方法.")
 
         if not self._granula:
-            assert len(self._granulalist) == 6
+            assert len(kwargs) == 6
             for k in kwargs:
                 if k not in self._granulalist:
                     raise Exception("{}必须在{}中".format(k,','.join(self._granulalist)))
                 setattr(self, '_' + k, kwargs[k])
+            assert all([12 >= self._month >= 1,
+                        31 >= self._day >= 1,
+                        23 >= self._hour >= 0,
+                        59 >= self._minute >= 0,
+                        59 >= self._second >= 0])
             self._method = 'fix-all'
             return self
 
@@ -247,24 +263,39 @@ class Crontab(object):
             self._hour = kwargs.get('hour', 0)
             self._minute = kwargs.get('minute', 0)
             self._second = kwargs.get('second', 0)
+            assert all([12 >= self._month >= 1,
+                        31 >= self._day >= -5 and self._day != 0,
+                        23 >= self._hour >= 0,
+                        59 >= self._minute >= 0,
+                        59 >= self._second >= 0])
 
         elif self._granula == 'month':
             self._day = kwargs.get('day', 1)
             self._hour = kwargs.get('hour', 0)
             self._minute = kwargs.get('minute', 0)
             self._second = kwargs.get('second', 0)
+            assert all([31 >= self._day >= -5 and self._day != 0,
+                        23 >= self._hour >= 0,
+                        59 >= self._minute >= 0,
+                        59 >= self._second >= 0])
 
         elif self._granula == 'day':
             self._hour = kwargs.get('hour', 0)
             self._minute = kwargs.get('minute', 0)
             self._second = kwargs.get('second', 0)
+            assert all([23 >= self._hour >= 0,
+                        59 >= self._minute >= 0,
+                        59 >= self._second >= 0])
 
         elif self._granula == 'hour':
             self._minute = kwargs.get('minute', 0)
             self._second = kwargs.get('second', 0)
+            assert all([59 >= self._minute >= 0,
+                        59 >= self._second >= 0])
 
         elif self._granula == 'minute':
             self._second = kwargs.get('second', 0)
+            assert all([59 >= self._second >= 0])
 
         elif self._granulalist == 'second':
             raise Exception("every('second')时不支持at,可使用interval!")
@@ -277,6 +308,8 @@ class Crontab(object):
             raise Exception("不可重用interval和at方法.")
         if not self._granula:
             raise Exception("必须先使用every方法指定频率粒度")
+        if not isinstance(num, int) or num < 0:
+            raise Exception("参数num必须为大于0的整数")
         self._method = 'interval'
         setattr(self, '_' + self._granula, num)
         return self
