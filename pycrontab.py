@@ -130,8 +130,12 @@ class Job(object):
     def gen_log_sequence(self):
         # 计算日志大小
         log_file = self.log_file.format(timestamp=self.log_file_timestamp, sequence=self.log_file_sequence)
-        if os.path.getsize(log_file) > self.log_size * 1024 * 1024:
-            self.log_file_sequence += 1
+
+        if not os.path.exists(self.log_file):
+            self.log_file_sequence = 1
+        else:
+            if os.path.getsize(log_file) > self.log_size * 1024 * 1024:
+                self.log_file_sequence += 1
 
     def log(self, path=None, prefix=None, size=None):
         """"""
