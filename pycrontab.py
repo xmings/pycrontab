@@ -1,7 +1,7 @@
 # -*- coding:utf-8 -*-
 import os, time, uuid, platform, json, codecs
 import logging
-from multiprocessing import Process, Queue, freeze_support
+from multiprocessing import Process, freeze_support, Manager
 from datetime import date, datetime, timedelta
 from subprocess import Popen, PIPE
 
@@ -395,33 +395,31 @@ crontab = Crontab()
 
 def crontab_run(debug=False):
     freeze_support()
-    queue = Queue()
-    ps = []
-    p1 = Process(target=crontab.loop, name="crontab.loop", args=(queue, debug))
-    p1.daemon = True
-    ps.append(p1)
-    p2 = Process(target=first_runner, name="first_runner", args=(queue,))
-    p2.daemon = True
-    ps.append(p2)
-    p3 = Process(target=second_runner, name="second_runner", args=(queue,))
-    p3.daemon = True
-    ps.append(p3)
+    with Manager() as manager:
+        queue = manager.Queue()
+        ps = [
+            Process(target=crontab.loop, name="crontab.loop", args=(queue, debug)),
+            Process(target=first_runner, name="first_runner", args=(queue,)),
+            Process(target=second_runner, name="second_runner", args=(queue,))
+        ]
 
-    for p in ps:
-        p.start()
-
-    while True:
         for p in ps:
-            if not p.is_alive():
-                ps.remove(p)
-                print("terminate: {} {}".format(p.pid, p.name))
-                if p.name == 'crontab.loop':
-                    p = Process(target=crontab.loop, name=p.name, args=(queue, debug))
-                else:
-                    p = Process(target=globals()[p.name], name=p.name, args=(queue,))
-                p.daemon = True
-                ps.append(p)
-                p.start()
+            p.daemon = True
+            p.start()
+
+        while True:
+            time.sleep(5)
+            for p in ps:
+                if not p.is_alive():
+                    ps.remove(p)
+                    print("terminate: {} {}".format(p.pid, p.name))
+                    if p.name == 'crontab.loop':
+                        p = Process(target=crontab.loop, name=p.name, args=(queue, debug))
+                    else:
+                        p = Process(target=globals()[p.name], name=p.name, args=(queue,))
+                    p.daemon = True
+                    ps.append(p)
+                    p.start()
 
 
 if __name__ == '__main__':
