@@ -332,7 +332,7 @@ class Crontab(object):
         self._end_time = dtime.replace(microsecond=0)
         return self
 
-    def add(self, script, executor='python'):
+    def execute(self, script, executor='python'):
         if not os.path.exists(script):
             raise Exception("未找到该脚本:{}".format(script))
         if os.path.splitext(script)[1].lower() != '.py' and executor.lower() =='python':
