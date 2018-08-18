@@ -43,7 +43,7 @@ class Job(object):
         self.gen_next_time()
         self.log()
 
-    def gen_next_time(self):
+    def gen_next_time(self, init=True):
         """"""
         if self.method == 'fix-all':
             self.next_time = datetime(year=self.year,
@@ -67,11 +67,11 @@ class Job(object):
                 # 防止第一次计算next_time跳过当年的执行时间
                 # 比如begin_time='2018-06-01 00:00:00', 如果指定每年7月1日执行一次作业，
                 # 此时以下条件限制就可以防止添加作业后第一次的next_time跳过当年的7月
-                if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
+                if (self.begin_time and self.next_time < self.begin_time) or init==False or self.next_time < now:
                     self.next_time = self.next_time.replace(year=self.next_time.year + 1)
             elif self.granula == 'month':
                 self.next_time = self.next_time.replace(hour=self.hour, minute=self.minute, second=self.second)
-                if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
+                if (self.begin_time and self.next_time < self.begin_time) or init==False or self.next_time < now:
                     if self.next_time.month == 12:
                         self.next_time = self.next_time.replace(year=self.next_time.year + 1, month=1)
                     else:
@@ -86,15 +86,15 @@ class Job(object):
 
             elif self.granula == 'day':
                 self.next_time = self.next_time.replace(hour=self.hour, minute=self.minute, second=self.second)
-                if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
+                if (self.begin_time and self.next_time < self.begin_time) or init==False or self.next_time < now:
                     self.next_time += timedelta(days=1)
             elif self.granula == 'hour':
                 self.next_time = self.next_time.replace(minute=self.minute, second=self.second)
-                if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
+                if (self.begin_time and self.next_time < self.begin_time) or init==False or self.next_time < now:
                     self.next_time += timedelta(hours=1)
             elif self.granula == 'minute':
                 self.next_time = self.next_time.replace(second=self.second)
-                if (self.begin_time and self.next_time < self.begin_time) or self.next_time < now:
+                if (self.begin_time and self.next_time < self.begin_time) or init==False or self.next_time < now:
                     self.next_time += timedelta(minutes=1)
 
             if self.end_time and self.next_time > self.end_time:
@@ -352,6 +352,7 @@ class Crontab(object):
             json_jobs = [j.__dict__ for j in self._jobs]
             json.dump(json_jobs, f, indent=4, ensure_ascii=False, separators=(',', ': '), cls=DateEncoder)
 
+        self.last_loop_time = datetime.now().replace(microsecond=0) - timedelta(seconds=10)
         while True:
             run_batch_id = uuid.uuid1().hex
             now = datetime.now().replace(microsecond=0)
@@ -363,15 +364,14 @@ class Crontab(object):
                 if debug:
                     j._logger(debug).info("{}".format(str(j)))
 
-                # 两秒钟的时间窗口，避免因为job太多导致错过部分job
-                if (j.next_time + timedelta(seconds=2)) >= now >= j.next_time \
-                        and run_batch_id != j.run_batch_id:
+                if self.last_loop_time < j.next_time <= now:
                     j.run_batch_id = run_batch_id
                     if debug:
                         j._logger(debug).info("put job into queue: {}".format(str(j)))
                     queue.put(j)
-                    j.gen_next_time()
+                    j.gen_next_time(init=False)
                     j.gen_log_sequence()
+                    self.last_loop_time = now
 
             time.sleep(1)
 
