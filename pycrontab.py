@@ -19,10 +19,10 @@ class Job(object):
 
     def __init__(self, script, executor, crontab):
         """Constructor"""
+        self.job_id = uuid.uuid1().hex
         self.script = script
         self.executor = executor
         self.add_time = datetime.now().replace(microsecond=0)
-        self.run_batch_id = None
         self.next_time = None
         self.log_file = None
         self.log_file_timestamp = date.today().strftime('%Y%m%d')
@@ -347,25 +347,41 @@ class Crontab(object):
     def __setstate__(self, state):
         self._jobs = state
 
-    def loop(self, queue, debug):
-        with codecs.open(self.job_config_file, 'w', encoding='utf-8') as f:
+
+    def flushJobs(self, init=False):
+        if init:
             json_jobs = [j.__dict__ for j in self._jobs]
+        else:
+            with codecs.open(self.job_config_file, 'r', encoding='utf-8') as f:
+                json_jobs = f.read()
+                json_jobs = json.loads(json_jobs)
+                for jj in json_jobs:
+                    for j in self._jobs:
+                        if jj['job_id'] == j.job_id:
+                            break
+                    jj['status'] = -1
+        with codecs.open(self.job_config_file, 'w', encoding='utf-8') as f:
             json.dump(json_jobs, f, indent=4, ensure_ascii=False, separators=(',', ': '), cls=DateEncoder)
+
+
+    def loop(self, queue, debug):
+        self.flushJobs(init=True)
 
         self.last_loop_time = datetime.now().replace(microsecond=0) - timedelta(seconds=10)
         while True:
-            run_batch_id = uuid.uuid1().hex
             now = datetime.now().replace(microsecond=0)
 
             # 去除已完成的job
+            pre_job_count = len(self._jobs)
             self._jobs = [j for j in self._jobs if j.status == 1]
+            if pre_job_count != len(self._jobs):
+                self.flushJobs()
 
             for j in sorted(self._jobs):
                 if debug:
                     j._logger(debug).info("{}".format(str(j)))
 
                 if self.last_loop_time < j.next_time <= now:
-                    j.run_batch_id = run_batch_id
                     if debug:
                         j._logger(debug).info("put job into queue: {}".format(str(j)))
                     queue.put(j)
@@ -380,8 +396,9 @@ class DateEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
             return obj.strftime('%Y-%m-%d %H:%M:%S')
-        else:
-            return json.JSONEncoder.default(self, obj)
+        elif obj is None:
+            return ""
+        return json.JSONEncoder.default(self, obj)
 
 def first_runner(queue):
     while True:
