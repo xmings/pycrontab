@@ -99,6 +99,8 @@ class Job(object):
 
             if self.end_time and self.next_time > self.end_time:
                 self.status = -1
+            elif self.next_time <= datetime.now():
+                self.gen_next_time()
 
         else: # interval
             if not self.next_time:
@@ -126,6 +128,9 @@ class Job(object):
 
                 if self.end_time and self.next_time > self.end_time:
                     self.status = -1
+                elif self.next_time <= datetime.now():
+                    self.gen_next_time()
+
 
     def gen_log_sequence(self):
         # 计算日志大小
@@ -387,8 +392,10 @@ class Crontab(object):
                     queue.put(j)
                     j.gen_next_time(init=False)
                     j.gen_log_sequence()
-                    self.last_loop_time = now
+                elif j.next_time < self.last_loop_time:
+                    j.gen_next_time(init=False)
 
+            self.last_loop_time = now
             time.sleep(1)
 
 
